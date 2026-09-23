@@ -1,0 +1,4 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {retryProvider,ProviderError} from './providers/retry';
+test('retry temporary upstream errors and return once',async()=>{let calls=0;const result=await retryProvider(async()=>{if(++calls===1)throw new ProviderError(503);return 'ok'},{timeoutSeconds:1,retries:1});assert.equal(calls,2);assert.equal(result,'ok')});
+test('authentication failures never retry',async()=>{let calls=0;await assert.rejects(retryProvider(async()=>{calls++;throw new ProviderError(401)},{timeoutSeconds:1,retries:3}));assert.equal(calls,1)});
+test('cancel during retry delay prevents another call',async()=>{const controller=new AbortController();let calls=0;const work=retryProvider(async()=>{calls++;setTimeout(()=>controller.abort(),20);throw new ProviderError(503)},{timeoutSeconds:1,retries:3},controller.signal);await assert.rejects(work);assert.equal(calls,1)});

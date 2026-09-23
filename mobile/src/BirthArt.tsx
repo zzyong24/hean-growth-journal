@@ -1,0 +1,2 @@
+import React from "react";import {Image,View} from "react-native";
+export function BirthArt({index,size=104}:{index:number;size?:number}){return <View style={{width:size,height:size,overflow:"hidden",borderRadius:18}}><Image source={require("../assets/birth-atlas.png")} style={{position:"absolute",width:size*4,height:size*6,left:-(index%4)*size,top:-[32,288,548,788,1008,1230][Math.floor(index/4)]*size/256}}/></View>}

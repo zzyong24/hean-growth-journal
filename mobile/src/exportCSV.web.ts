@@ -1,0 +1,2 @@
+import {AppData} from './domain';import {eventCSV} from './eventCSV';
+export async function exportCSV(data:AppData){const url=URL.createObjectURL(new Blob([eventCSV(data.records,data.profile.name,data.settings.region==='CN'?'Asia/Shanghai':Intl.DateTimeFormat().resolvedOptions().timeZone)],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='禾安事件流-'+Date.now()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}

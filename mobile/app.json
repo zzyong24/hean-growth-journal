@@ -1,0 +1,86 @@
+{
+  "expo": {
+    "name": "禾安成长日记",
+    "slug": "hean-growth-journal",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/brand/hean-icon-ios.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "cloud.aitongban.hean",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "录制你的语音，或保留宝宝的声音片段。",
+        "NSCameraUsageDescription": "拍摄照片和短视频，记录宝宝的日常。",
+        "NSPhotoLibraryUsageDescription": "选择照片或视频用于本次记录。",
+        "NSLocalNetworkUsageDescription": "连接同一网络中的 禾安成长日记 服务，完成语音识别和 AI 记录。"
+      },
+      "buildNumber": "2"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/brand/hean-icon-ios.png",
+        "backgroundColor": "#f7f5ea"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/brand/hean-icon-ios.png"
+    },
+    "plugins": [
+      "./plugins/withWidgetBackground",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "录制语音或宝宝的声音。",
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "选择照片和视频，记录宝宝日常。",
+          "cameraPermission": "拍摄宝宝的照片和短视频。"
+        }
+      ],
+      "expo-font",
+      "expo-video",
+      "@react-native-community/datetimepicker",
+      "./plugins/withBabyQuickRecord",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "选择照片进行创作。",
+          "savePhotosPermission": "将成长分享卡和创作作品保存到你的相册。",
+          "granularPermissions": [
+            "photo"
+          ]
+        }
+      ],
+      "expo-notifications",
+      [
+        "expo-widgets",
+        {
+          "widgets": [
+            {
+              "name": "BabyToday",
+              "displayName": "宝宝的今天",
+              "description": "宝宝概况与快速记录",
+              "supportedFamilies": [
+                "systemSmall",
+                "systemMedium",
+                "accessoryRectangular"
+              ]
+            }
+          ]
+        }
+      ],
+      "./plugins/withLocalNotifications",
+      "expo-sharing",
+      "./plugins/withHeanCamera",
+      "expo-secure-store"
+    ],
+    "scheme": "babyai"
+  }
+}
