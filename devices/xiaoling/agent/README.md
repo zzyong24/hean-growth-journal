@@ -11,12 +11,12 @@ npm ci
 npm run typecheck
 npm test
 ling app build --release
-ling app deploy --version 0.1.5 --activate
+ling app deploy --version 0.1.6 --activate
 ```
 
 `bootstrap.py` 下载官方 0.1.1 SDK 并核验固定 SHA-256。`vendor/`、`sdk/`、`node_modules/` 和 `dist/` 均为忽略的生成文件。`listenai.toml` 与 `config.local.ts` 保存自己的产品 ID 和 HTTPS 源站，两者都被忽略；API Key 通过用户本人运行 `ling login` 输入，不写入项目。
 
-2026-10-25 验证版本 `v0.1.5`。部署只更新当前产品测试链，未刷写固件。回滚可在聆思平台选择此前版本；不要退回只调用专用音乐 MCP 的 v0.1.1–v0.1.3，它们不能在此设备的小应用模式播放。
+2026-10-25 验证版本 `v0.1.6`。部署只更新当前产品测试链，未刷写固件。回滚可在聆思平台选择此前版本；不要退回只调用专用音乐 MCP 的 v0.1.1–v0.1.3，它们不能在此设备的小应用模式播放。
 
 ## 音频
 
@@ -27,3 +27,9 @@ ling app deploy --version 0.1.5 --activate
 ## 播报与异步记录
 
 `LazyResponseProvider` 在产生文字后才打开官方 TTS 流，避免上下文准备与慢解析时空音频连接先超时。服务器先持久保存原话，复杂记录约 200 ms 后回复收到，后台继续处理；明确的即时奶量可直接校验保存并读回数量。详见[完整开发教程](../../../docs/xiaoling-development.md)。
+
+## 原生工具失败反馈
+
+v0.1.6 的 `nativeResults.ts` 修正平台将设备模式拒绝变成成功且立即结束的问题。仅匹配精确的 `tool unavailable in current application mode`，使其进入失败播报；不改写成功图像和音乐结果，不自动关闭看板。
+
+当前固件仍拒绝看板运行时的拍照。普通桌面拍照已实测成功；这不代表拍照与看板已经共存，完整兼容需要固件改动。

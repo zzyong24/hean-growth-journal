@@ -2,6 +2,7 @@ import {emitTTSStreamUrl, closeActiveTTSStream, type FunctionTool, type ToolExec
 import {DefaultToolProvider, type ToolPreparationContext} from './vendor/tools/defaultToolProvider';
 import type {VoiceTurnContext} from './vendor/types';
 import {musicOrigin} from './config.local';
+import {withNativeErrorFeedback} from './nativeResults';
 
 export const playDefinition:FunctionTool={type:'function',function:{
   name:'hean_play_audio_link',description:'播放禾安家庭曲库中用户提供的音乐。仅接受禾安签发的临时音频链接。',
@@ -24,6 +25,7 @@ export function playbackAction(args:Record<string,unknown>):DeviceActionRequest 
 export class HeanTools extends DefaultToolProvider {
   override async prepare(context:VoiceTurnContext,policy:ToolPreparationContext={}) {
     const prepared=await super.prepare(context,policy);
+    prepared.registry=withNativeErrorFeedback(prepared.registry);
     const executor=(stop:boolean):ToolExecutor=>({execute:async(call,execution)=>{
       execution.cancellation.throwIfCancelled();
       if(!stop){
