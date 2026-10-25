@@ -1,12 +1,23 @@
 import {eliminationSummary} from '../mobile/src/care/details.ts';
 import {ageDays} from '../mobile/src/domain/index.ts';
 import {createHash} from 'node:crypto';
-const day=at=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'}).format(new Date(at));
+const chinaDate=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'});
+const day=at=>chinaDate.format(new Date(at));
+function totals(rows){
+ const feeds=rows.filter(r=>r.kind==='bottle'),sleep=rows.filter(r=>r.kind==='sleep');
+ return {milkMl:feeds.length?feeds.reduce((n,r)=>n+r.value,0):null,
+  sleepMinutes:sleep.length?sleep.reduce((n,r)=>n+r.value,0):null,
+  diaperChanges:eliminationSummary(rows).changes.total??null};
+}
 export function displaySummary(state,now=new Date()){
- const d=state.data,date=day(now),rows=d.records.filter(r=>day(r.at)===date);
+ const d=state.data,date=day(now),midnight=new Date(date+'T00:00:00+08:00').getTime();
+ const dates=Array.from({length:7},(_,i)=>day(midnight+(i-6)*86400000)),days=new Map(dates.map(d=>[d,[]]));
+ for(const row of d.records)days.get(day(row.at))?.push(row);
+ const rows=days.get(date),week=dates.map(d=>totals(days.get(d)));
  const feeds=rows.filter(r=>r.kind==='bottle'),paired=feeds.filter(r=>r.details?.preparedMl!==undefined),sleep=rows.filter(r=>r.kind==='sleep');
  const elimination=eliminationSummary(rows);
  return {date,name:[...d.profile.name].slice(0,8).join(''),ageDays:d.profile.birthday?ageDays(d.profile,now,'Asia/Shanghai'):null,
+  trend:{startDate:dates[0],endDate:date,milkMl:week.map(v=>v.milkMl),sleepMinutes:week.map(v=>v.sleepMinutes),diaperChanges:week.map(v=>v.diaperChanges)},
   consumedMl:feeds.length?feeds.reduce((n,r)=>n+r.value,0):null,feedCount:feeds.length,
   preparedMl:paired.length?paired.reduce((n,r)=>n+Number(r.details.preparedMl),0):null,
   leftoverMl:paired.length?paired.reduce((n,r)=>n+Number(r.details.preparedMl)-r.value,0):null,completeMilkCount:paired.length,

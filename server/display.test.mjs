@@ -9,6 +9,21 @@ test('display uses China dates, unknowns stay null, and paired amounts do not in
  assert.equal(value.consumedMl,180);assert.equal(value.feedCount,2);assert.equal(value.preparedMl,90);assert.equal(value.leftoverMl,10);assert.equal(value.completeMilkCount,1);
  assert.ok(!JSON.stringify(value).includes('私密'));assert.equal(value.records,undefined);
 });
+test('seven-day trends follow China midnight, preserve gaps and count actual intake and explicit changes',()=>{
+ const at='2026-10-25T08:00:00Z';const value=displaySummary({updated:at,data:{...data,records:[
+  {...milk,id:'boundary',at:'2026-10-18T16:00:00Z',value:80},
+  {...milk,id:'outside',at:'2026-10-18T15:59:59Z',value:999},
+  {...milk,id:'future',at:'2026-10-25T16:00:00Z',value:999},
+  milk,{...milk,id:'today2',value:60,details:{}},
+  {id:'sleep',kind:'sleep',at,value:95,note:''},
+  {id:'diaper',kind:'diaper',at,value:1,details:{urinationCount:'4',diaperChangeCount:'2'}},
+  {id:'unknown-change',kind:'diaper',at,value:1,details:{urinationCount:'3'}},
+  {id:'zero-change',kind:'diaper',at:'2026-10-23T08:00:00Z',value:1,details:{diaperChangeCount:'0'}}
+ ]}},new Date(at));
+ assert.deepEqual(value.trend,{startDate:'2026-10-19',endDate:'2026-10-25',milkMl:[80,null,null,null,null,null,140],sleepMinutes:[null,null,null,null,null,null,95],diaperChanges:[null,null,null,null,0,null,2]});
+ assert.equal(value.trend.milkMl[6],value.consumedMl);assert.equal(value.urinations,7);assert.equal(value.diaperChanges,2);assert.ok(!JSON.stringify(value.trend).includes('私密'));
+ const next=displaySummary({data,updated:at},new Date('2026-10-31T16:00:00Z'));assert.equal(next.trend.startDate,'2026-10-26');assert.equal(next.trend.endDate,'2026-11-01');
+});
 test('display credential cannot access voice writes, is scoped to its baby, and cannot read another profile',async()=>{
  const s=voiceStore(':memory:');s.sync('owner','a',data);s.sync('other','b',{...data,profile:{...data.profile,name:'其他宝宝'}});
  const token=s.pairDisplay('owner','a');assert.equal(s.identify(token),undefined);assert.equal(s.identifyDisplay(s.pair('owner','a','voice')),undefined);
@@ -39,5 +54,10 @@ test('phone heartbeats keep cached totals and versions while real edits invalida
  const app=Fastify();app.addHook('onRequest',async req=>{req.displayLink={owner:'o',profile:'p'}});registerDisplayRoutes(app,{...s,state(...args){reads++;return s.state(...args)}});
  try{const first=(await app.inject('/api/display/summary')).json();await new Promise(r=>setTimeout(r,5));s.sync('o','p',undefined);s.sync('o','p',data);assert.equal(s.revision('o','p'),revision);const next=(await app.inject('/api/display/summary')).json();assert.equal(next.version,first.version);assert.notEqual(next.lastPhoneSync,first.lastPhoneSync);assert.equal(reads,1);
  s.sync('o','p',{...data,records:[milk]});await app.inject('/api/display/summary');assert.equal(reads,2);
+ }finally{await app.close();s.close()}
+});
+test('historical edits invalidate trend versions even when today is unchanged',async()=>{
+ const s=voiceStore(':memory:');s.sync('o','p',data);const app=Fastify();app.addHook('onRequest',async req=>{req.displayLink={owner:'o',profile:'p'}});registerDisplayRoutes(app,s,{now:()=>new Date('2026-10-25T08:00:00Z')});
+ try{const first=(await app.inject('/api/display/summary')).json();s.sync('o','p',{...data,records:[{...milk,at:'2026-10-20T08:00:00Z'}]});const next=(await app.inject('/api/display/summary?since='+first.version)).json();assert.notEqual(next.version,first.version);assert.equal(next.consumedMl,first.consumedMl);assert.equal(next.trend.milkMl[1],80);assert.equal(next.unchanged,undefined);
  }finally{await app.close();s.close()}
 });
