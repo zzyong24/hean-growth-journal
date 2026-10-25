@@ -1,0 +1,19 @@
+{
+  "name": "hean-xiaoling-agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "ling app build --release",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@listenai/agent-sdk": "file:./sdk"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3",
+    "tsx": "4.23.1",
+    "@types/node": "22.20.0"
+  }
+}

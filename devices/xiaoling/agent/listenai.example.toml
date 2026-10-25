@@ -1,0 +1,9 @@
+product_id = "YOUR_LISTENAI_PRODUCT_ID"
+
+[project]
+name = "hean-xiaoling"
+version = "0.1.5"
+entry = "agent.ts"
+
+[providers]
+tts = ["listenai"]

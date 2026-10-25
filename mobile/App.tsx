@@ -1,3 +1,4 @@
+import {allMedia,applyMediaDeletions,conversationMedia,deleteAlbumMedia,unownedMedia,withoutConversationMedia} from './src/care/mediaDeletion';
 import {useKeyboardLayout} from "./src/useKeyboardLayout";
 import {aiFailure} from './src/aiFailure';
 import {PageBody} from "./src/PageBody";
@@ -12,11 +13,18 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {createBabyRepository, babyKey, BabyIndex} from "./src/babyRepository";
 import * as babyStorage from "./src/storage";
 import {dictationAttachment} from "./src/speechAttachment";
+import {BottleSessionCard} from './src/care/BottleSessionCard';
+import {applyBottleAction,type BottleAction} from './src/care/bottleFlow';
+import {ReviewCenter} from './src/review/ReviewCenter';
+import {enqueueReview,pendingReviews,resolveReview,type ReviewEntry} from './src/review/queue';
+import {attachmentURI,releaseURI} from './src/attachmentStorage';
+import {recordVersion} from './src/domain';
 import {NursingTimer} from "./src/care/NursingTimer";
 import * as PhotoLibrary from "expo-media-library/legacy";
 import {eventTime} from "./src/eventTime";
 import {CreationScreen} from "./src/CreationScreen";
 import { configureVoice, readVoiceReceipts, clearVoiceStorage } from "./src/voiceStorage";
+import {syncAssistant} from "./src/assistantSync";
 import { applyReceipts } from "./src/voiceInbox";
 import { AppState } from "react-native";
 import {
@@ -126,7 +134,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
   const loadData=()=>babyStorage.loadData(babyId);
   const loadConversation=()=>babyStorage.loadConversation(babyId);
   const persist=(value:AppData)=>babyStorage.persist({...value,babyId},babyId);
-  const persistConversation=(value:babyStorage.Conversation)=>babyStorage.persistConversation(value,babyId);
+  const persistConversation=(value:babyStorage.Conversation)=>babyStorage.persistConversation(withoutConversationMedia(value,dataRef.current.deletedMediaIds||[]),babyId);
   const [babyCards,setBabyCards]=useState<{id:string;name:string}[]>([]);
   const [switching,setSwitching]=useState(false);
   const switchLock=useRef(false);
@@ -143,18 +151,20 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
   const dataRef = useRef(data);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState(false);
-  const [recordSection, setRecordSection] = useState<"timeline" | "trends" | "report">("timeline");
+  const [recordSection, setRecordSection] = useState<"timeline" | "trends" | "report" | "review">("timeline");
   const [tab, setTab] = useState<"today" | "records" | "baby" | "settings" | "creation">(
     "today",
   );
   useEffect(()=>{if(entry){setTab(entryAction==="nursing"?"records":"today");if(entryAction==="nursing")setRecordSection("timeline")}},[entry,entryAction]);
   const [input, setInput] = useState("");
   const [drafts, setDrafts] = useState<CareRecord[]>([]);
+  const [pendingBottle,setPendingBottle]=useState<BottleAction>();
+  const [reviewEditing,setReviewEditing]=useState<string>();
   const [pendingSleep,setPendingSleep]=useState<string>();
   const [pendingNursing,setPendingNursing]=useState<AppData["nursingSession"]>();
   const [messages, setMessages] = useState<Message[]>([]);
-  const conversationRef = useRef({ messages, drafts, input, pendingNursing, pendingSleep });
-  conversationRef.current = { messages, drafts, input, pendingNursing, pendingSleep };
+  const conversationRef = useRef({ messages, drafts, input, pendingNursing, pendingSleep, pendingBottle });
+  conversationRef.current = { messages, drafts, input, pendingNursing, pendingSleep, pendingBottle };
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [saving, setSaving] = useState(false);
@@ -213,8 +223,8 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
       const d = await loadData();
       dataRef.current = d;
       setData(d);
-      const chat = await loadConversation();
-      setMessages(chat.messages);setPendingNursing(chat.pendingNursing);setPendingSleep(chat.pendingSleep);
+      const chat = withoutConversationMedia(await loadConversation(),d.deletedMediaIds||[]);
+      setMessages(chat.messages);setPendingNursing(chat.pendingNursing);setPendingSleep(chat.pendingSleep);setPendingBottle(chat.pendingBottle);
       setDrafts(chat.drafts);
       setInput(chat.input);
       setReady(true);
@@ -224,8 +234,8 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
     }
   }
   useEffect(() => {
-    if (ready) persistConversation({ messages, drafts, input, pendingNursing, pendingSleep }).catch(() => setNotice(t.saveError));
-  }, [ready, messages, drafts, input,pendingNursing,pendingSleep]);
+    if (ready) persistConversation({ messages, drafts, input, pendingNursing, pendingSleep, pendingBottle }).catch(() => setNotice(t.saveError));
+  }, [ready, messages, drafts, input,pendingNursing,pendingSleep,pendingBottle]);
   const pickerAction = useRef<null | (() => void)>(null);
   const pickerLock = useRef(false);
   function closeAttachmentsThen(action: () => void) {
@@ -240,6 +250,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
     voiceSyncLock.current = true;
     try {
       const receipts = await readVoiceReceipts(babyId);
+      try {receipts.push(...await syncAssistant(dataRef.current));} catch {if(dataRef.current.settings.assistantSync)setNotice(lang==='zh'?'小聆同步暂未连通，云端回执会保留，联网后重试。':'Assistant sync unavailable; receipts stay queued for retry.');}
       const result = applyReceipts(dataRef.current, receipts);
       if (result.incoming.length) {
         const previous = conversationRef.current;
@@ -247,14 +258,15 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
         const draftIds = new Set(previous.drafts.map(r=>r.id));
         const nextMessages = [...previous.messages,...result.incoming.flatMap(r=>[
           {id:`voice-${r.id}-user`,role:"user" as const,text:r.text,at:r.capturedAt},
-          {id:`voice-${r.id}-${r.status}`,role:"assistant" as const,text:r.reply || (r.status === "saved" ? "Siri 已保存这笔记录。" : "请核对这笔语音记录。")}
+          {id:`voice-${r.id}-${r.status}`,role:"assistant" as const,text:r.reply || (r.status === "saved" ? "语音记录已保存。" : "请核对这笔语音记录。")}
         ]).filter(m=>!messageIds.has(m.id))];
-        const nextDrafts = [...previous.drafts,...result.incoming.filter(r=>r.status==='review').flatMap(r=>r.records).filter(r=>!draftIds.has(r.id))];
+        const nextDrafts = previous.drafts;
         // Persist the conversation first: interruption cannot mark a review receipt
         // processed before its draft is durable. Replays deduplicate by stable IDs.
-        await persistConversation({messages:nextMessages,drafts:nextDrafts,input:previous.input});
+        await persistConversation({...previous,messages:nextMessages,drafts:nextDrafts});
         setMessages(nextMessages); setDrafts(nextDrafts);
-        await update(current => applyReceipts(current, receipts).data);
+        const saved=await update(current => applyReceipts(current, receipts).data);
+        if(saved)try{await syncAssistant(dataRef.current);}catch{ /* replay is safe until the acknowledgement reaches the server */ }
       }
     } catch { setNotice(t.saveError); }
     finally { voiceSyncLock.current = false; }
@@ -308,7 +320,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
     saveLock.current = true;
     setSaving(true);
     try {
-      const next = {...fn(dataRef.current),babyId};
+      const next = applyMediaDeletions({...fn(dataRef.current),babyId});
       await persist(next);
       dataRef.current = next;
       setData(next);
@@ -321,6 +333,25 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
       saveLock.current = false;
       setSaving(false);
     }
+  }
+  async function removeAlbumMedia(ids:string[]):Promise<boolean>{
+    if(requestLock.current||saveLock.current||voiceSyncLock.current){setNotice(lang==='zh'?'请等当前保存或同步完成后再删除。':'Wait for the current save or sync to finish.');return false;}
+    requestLock.current=true;
+    try{
+      let removed:import('./src/domain').Attachment[]=[];
+      if(!await update(d=>{const result=deleteAlbumMedia(d,ids);removed=result.removed;return result.data}))return false;
+      const pending=dataRef.current.mediaDeletionPending||[];
+      const chat=withoutConversationMedia(conversationRef.current,dataRef.current.deletedMediaIds||[]);
+      conversationRef.current=chat;setMessages(chat.messages);setDrafts(chat.drafts);
+      await persistConversation(chat);
+      // Shared photos and Live Photo clips are removed only when no profile owns them.
+      const owners=allMedia(dataRef.current).concat(conversationMedia(chat));
+      for(const id of babyIds.filter(id=>id!==babyId)){const other=await babyStorage.loadData(id),otherChat=await babyStorage.loadConversation(id);owners.push(...allMedia(other),...conversationMedia(withoutConversationMedia(otherChat,other.deletedMediaIds||[])));}
+      await deleteAttachments(unownedMedia(pending,owners));
+      const completed=new Set(pending.map(a=>a.id));
+      if(!await update(d=>({...d,mediaDeletionPending:d.mediaDeletionPending?.filter(a=>!completed.has(a.id))})))return false;
+      setNotice(lang==='zh'?`已从禾安删除 ${removed.length||pending.length} 项。`:`Deleted ${removed.length||pending.length} items from Hean.`);return true;
+    }catch{setNotice(lang==='zh'?'相册内容已移除，文件清理尚未完成。可在成长相册重试清理。':'Album items removed; file cleanup is pending. Retry from Growing memories.');return false;}finally{requestLock.current=false;}
   }
   function addMessage(role: Message["role"], text: string) {
     setMessages((prev) => [...prev, { id: uid(), role, text, at:new Date().toISOString() }]);
@@ -344,7 +375,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
   function closeEditor() {
     if (editor) {
       const owned = new Set(
-        [...dataRef.current.records, ...drafts, ...messages].flatMap((r) =>
+        [...dataRef.current.records, ...drafts, ...messages,...(dataRef.current.reviewQueue||[])].flatMap((r) =>
           (r.attachments || []).map((a) => a.id),
         ),
       );
@@ -352,11 +383,11 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
         (editor.record.attachments || []).filter((a) => !owned.has(a.id)),
       ).catch(() => {});
     }
-    setEditor(null);
+    setEditor(null);setReviewEditing(undefined);
   }
   function changeDrafts(next: CareRecord[]) {
     const owned = new Set(
-      [...dataRef.current.records, ...next, ...messages].flatMap((r) =>
+      [...dataRef.current.records, ...next, ...messages,...(dataRef.current.reviewQueue||[])].flatMap((r) =>
         (r.attachments || []).map((a) => a.id),
       ),
     );
@@ -379,6 +410,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
       await update((d) => ({
         ...d,
         records: mergeRecords(d.records, [record]),
+        reviewQueue:reviewEditing?(d.reviewQueue||[]).map(item=>item.id===reviewEditing?{...item,reason:item.reason.replace('识别结果尚未保存，请逐条核对后保存。','本条记录已保存，请继续核对其余内容。'),recordIds:[...new Set([...(item.recordIds||[]),record.id])],proposedRecords:(item.proposedRecords||[]).filter(r=>r.id!==record.id)}:item):d.reviewQueue,
       }))
     ) {
       const previous = data.records.find((r) => r.id === record.id);
@@ -386,21 +418,56 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
         [
           ...(previous?.attachments || []),
           ...(editor.record.attachments || []),
-        ].filter((a) => !record.attachments?.some((b) => b.id === a.id) && !dataRef.current.records.some(r=>r.id!==record.id&&r.attachments?.some(b=>b.id===a.id))),
+        ].filter((a) => !record.attachments?.some((b) => b.id === a.id) && !dataRef.current.records.some(r=>r.id!==record.id&&r.attachments?.some(b=>b.id===a.id)) && !(dataRef.current.reviewQueue||[]).some(r=>r.attachments?.some(b=>b.id===a.id))),
       ).catch(() => {});
       setEditor(null);
-      setNotice(t.saved);
+      if(reviewEditing)setDrafts(rs=>rs.filter(r=>r.id!==record.id));setReviewEditing(undefined);setNotice(t.saved);
     }
   }
 
+  async function captureReview(id:string,at:string,text:string,result:Awaited<ReturnType<typeof interpret>>|undefined,saved:boolean,attachments?:CareRecord["attachments"]){
+    if(saved&&!result?.reviewReasons?.length)return;
+    await update(d=>enqueueReview(d,{id:'request-review-'+id,at,origin:'request',title:saved?'记录待补充':'记录未完成',sourceText:text,reason:result?.reviewReasons?.join('；')||(saved?'请核对原始内容。':'原始内容已保留，请补录或重新识别。'),attachments,recordIds:saved?result?.drafts.map(r=>r.id):[],proposedRecords:saved?[]:result?.drafts,bottleAction:saved?undefined:result?.bottleAction,sleepStart:saved?undefined:result?.sleepStart,nursingStart:saved?undefined:result?.nursingStart}));
+  }
+  function editReviewRecord(item:ReviewEntry,proposal?:CareRecord){
+    const existing=proposal&&dataRef.current.records.find(r=>r.id===(proposal.targetRecordId||proposal.id));
+    const record:CareRecord=proposal?{...proposal,...(existing?{id:existing.id,targetRecordId:existing.id,baseVersion:recordVersion(existing)}:{targetRecordId:undefined,baseVersion:undefined}),attachments:proposal.attachments||item.attachments}:{id:uid(),kind:'bottle',at:item.at,...(item.origin==='notebook'?{timePrecision:'day' as const}:{}),unit:'ml',note:'',sourceText:item.sourceText,attachments:item.attachments};
+    setReviewEditing(item.id);setEditor({record,mode:existing?'saved':'new'});
+  }
+  async function applyReviewAction(item:ReviewEntry){
+    if(!item.bottleAction&&!item.sleepStart&&!item.nursingStart)return;
+    if(await update(d=>{const next=commitAutomaticRecords(d,[],item.nursingStart,item.sleepStart,item.bottleAction);return {...next,reviewQueue:(next.reviewQueue||[]).map(x=>x.id===item.id?{...x,bottleAction:undefined,sleepStart:undefined,nursingStart:undefined,reason:'操作已保存，请核对后标记完成。'}:x)}})){
+      if(JSON.stringify(pendingBottle)===JSON.stringify(item.bottleAction))setPendingBottle(undefined);
+      if(pendingSleep===item.sleepStart)setPendingSleep(undefined);
+      if(JSON.stringify(pendingNursing)===JSON.stringify(item.nursingStart))setPendingNursing(undefined);
+      setNotice(t.saved);
+    }
+  }
+  async function retryReview(item:ReviewEntry,clarification:string){
+    if(requestLock.current||saveLock.current)return;
+    requestLock.current=true;setBusy(t.working);aiAbort.current=new AbortController();const uris:string[]=[];
+    try{
+      let source=item.sourceText;const images:{data:string;capturedAt?:string}[]=[];
+      for(const a of item.attachments||[]){if(a.type==='video')continue;const uri=await attachmentURI(a);uris.push(uri);if(a.type==='audio'){const m=await readMedia(uri,'audio',a.mime);source+='\n'+await transcribe(m,aiAbort.current.signal);}else{const photo=await prepareImage(uri);images.push({data:photo.data,capturedAt:a.capturedAt});}}
+      const sourceIds=new Set((item.attachments||[]).filter(a=>a.role==='source').map(a=>a.id));
+      const existing=dataRef.current.records.filter(r=>item.recordIds?.includes(r.id)||r.attachments?.some(a=>sourceIds.has(a.id)));
+      const retryRecords=[...existing,...dataRef.current.records.filter(r=>!existing.some(x=>x.id===r.id)).sort((a,b)=>Date.parse(b.at)-Date.parse(a.at))].slice(0,80);
+      const text=`请核对这条历史记录。原始事件日期时间：${item.at}。原文：${source}\n待核对原因：${item.reason}\n用户补充：${clarification||'无'}\n关联的现有记录已放入 records；请优先核对同页或同日记录。\n不要重复创建已存在的记录；有修正请明确 targetRecordId，只提取可以确定的信息。`;
+      const result=await interpret(dataRef.current,text,[],[],aiAbort.current.signal,undefined,images,[],item.at,retryRecords);
+      const proposals=result.drafts.map(r=>({...r,sourceText:source,attachments:r.attachments?.length?r.attachments:item.attachments}));
+      const saved=await update(d=>({...d,reviewQueue:(d.reviewQueue||[]).map(x=>x.id===item.id?{...x,proposedRecords:proposals,bottleAction:result.bottleAction,sleepStart:result.sleepStart,nursingStart:result.nursingStart,reason:[...(result.reviewReasons||[]),result.reply,'识别结果尚未保存，请逐条核对后保存。'].join('\n')}:x)}));
+      if(saved)setNotice(lang==='zh'?'识别完成，请逐条查看待确认结果。':'Results ready. Review each record before saving.');
+    }catch(error){setNotice(aiFailure(error,lang));}finally{uris.forEach(releaseURI);aiAbort.current=null;requestLock.current=false;setBusy('');}
+  }
+
   const [savedVersion, setSavedVersion] = useState(0);
-  async function saveAutomatic(records: CareRecord[],nursing?:AppData["nursingSession"],sleepStart?:string) {
-    if (!records.length&&!nursing&&!sleepStart) { setDrafts([]); return true; }
-    setPendingNursing(nursing);setPendingSleep(sleepStart);
+  async function saveAutomatic(records: CareRecord[],nursing?:AppData["nursingSession"],sleepStart?:string,bottleAction?:BottleAction) {
+    if (!records.length&&!nursing&&!sleepStart&&!bottleAction) { setDrafts([]); return true; }
+    setPendingNursing(nursing);setPendingSleep(sleepStart);setPendingBottle(bottleAction);
     setDrafts(records);
-    if (!await update(d => commitAutomaticRecords(d,records,nursing,sleepStart))) return false;
+    if (!await update(d => commitAutomaticRecords(d,records,nursing,sleepStart,bottleAction))) return false;
     setDrafts([]);
-    setPendingNursing(undefined);setPendingSleep(undefined);
+    setPendingNursing(undefined);setPendingSleep(undefined);setPendingBottle(undefined);
     setSleepDraftStart(null);
     setMessages(ms=>[...ms,{id:uid(),role:"assistant",text:"",at:new Date().toISOString(),acceptedRecords:records,nursingStarted:nursing,sleepStarted:sleepStart}]);
     setSavedVersion(n=>n+1);
@@ -408,9 +475,10 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
     return true;
   }
   async function confirmDrafts() {
-    if (await saveAutomatic(drafts,pendingNursing,pendingSleep)) addMessage("assistant",t.saved);
+    if (await saveAutomatic(drafts,pendingNursing,pendingSleep,pendingBottle)) addMessage("assistant",t.saved);
   }
-  function savedReply(records: CareRecord[]) {
+  function savedReply(records: CareRecord[],action?:BottleAction):string {
+    if(action&&lang==='zh')return (records.length?savedReply(records)+' ':'')+(action.type==='start'?`已开始这顿奶：准备 ${action.session.preparedMl} ml，喝完告诉我实际量或剩余量。`:action.type==='finish'?`这顿奶已保存：实际喝下 ${action.record.value} ml，剩余 ${Number(action.record.details?.preparedMl)-action.record.value!} ml。`:action.type==='undo'?'已撤销上一顿奶的完成记录，恢复到进行中。':'已取消这顿奶，未计入奶量。');
     const summary=records.map(r=>`${t[r.kind]}${r.value !== undefined ? ` ${r.value} ${r.unit || ""}` : r.kind === "note" ? `：${r.note}` : ""}`).join(lang === "zh" ? "、" : ", ");
     return lang === "zh" ? `已保存：${summary}。` : `Saved: ${summary}.`;
   }
@@ -420,12 +488,15 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
       requestLock.current = true;
       setBusy(t.working);
       let stage: "read" | "analyze" = "read";
+      const attemptId=uid(),attemptAt=new Date().toISOString();
+      let original:CareRecord["attachments"];
       try {
         const attachment = attached.attachment || {...await storeAttachment(
           attached.uri,
           attached.type,
           attached.mime,
         ),capturedAt:attached.capturedAt,livePhoto:attached.livePhoto};
+        original=[attachment];
         const messageId=attached.messageId||uid();
         setMedia({...attached,attachment,messageId});
         setInput("");
@@ -437,16 +508,17 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
           stage="analyze";
           const result=await interpret(dataRef.current,text|| (lang==="zh"?"请理解这张图片并整理需要记录的宝宝日常。如果是手写记录，请逐条提取清晰的事件。":"Understand this image and organize baby events. Extract clear entries from handwritten logs."),messages,drafts,aiAbort.current.signal,show,[{data:photo.data,capturedAt:attached.capturedAt}]);
           const records=result.drafts.map(r=>drafts.some(d=>d.id===r.id)?r:({...r,attachments:[...(r.attachments||[]),attachment]}));
-          const saved=await saveAutomatic(records,result.nursingStart,result.sleepStart);show(records.length ? (saved ? savedReply(records) : (lang === "zh" ? "记录未保存，可以重试保存。" : "Not saved. Retry saving.")) : result.reply);if(records.length)setMedia(null);setInput("");return;
+          const saved=await saveAutomatic(records,result.nursingStart,result.sleepStart,result.bottleAction);await captureReview(attemptId,attemptAt,text,result,saved,original);show(records.length||result.bottleAction ? (saved ? savedReply(records,result.bottleAction) : (lang === "zh" ? "记录未保存，可以重试保存。" : "Not saved. Retry saving.")) : result.reply);if(records.length)setMedia(null);setInput("");return;
         }
         aiAbort.current=new AbortController();
         stage="analyze";
         const result=await interpret(dataRef.current,text||t.photoLabel,messages,drafts,aiAbort.current.signal,undefined,[],[{type:attachment.type,capturedAt:attachment.capturedAt}]);
         const records=result.drafts.map(r=>({...r,attachments:[...(r.attachments||[]),attachment]}));
-        if(await saveAutomatic(records,result.nursingStart,result.sleepStart))addMessage("assistant",records.length?savedReply(records):result.reply);
+        const saved=await saveAutomatic(records,result.nursingStart,result.sleepStart,result.bottleAction);await captureReview(attemptId,attemptAt,text,result,saved,original);if(saved)addMessage("assistant",records.length||result.bottleAction?savedReply(records,result.bottleAction):result.reply);
         setMedia(null);
         setInput("");
       } catch (error) {
+        if(!aiAbort.current?.signal.aborted)await captureReview(attemptId,attemptAt,text,undefined,false,original);
         const code=error instanceof Error?error.message:"";
         setInput(text);
         setNotice(code.includes("TOO_LARGE")?t.tooLarge:stage === "analyze"
@@ -465,6 +537,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
     if (requestLock.current) return;
     requestLock.current = true;
     setBusy(withMedia ? t.observing : t.working);
+    const attemptId=uid(),attemptAt=new Date().toISOString();
     addMessage("user", text || t.audioLabel);
     setInput("");
     try {
@@ -477,12 +550,14 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
         const replyId = uid();
         const showReply=(text:string)=>setMessages(current=>current.some(m=>m.id===replyId)?current.map(m=>m.id===replyId?{...m,text}:m):[...current,{id:replyId,role:"assistant",text,at:new Date().toISOString()}]);
         const result = await interpret(dataRef.current, text, messages, drafts, aiAbort.current.signal, showReply);
-        const saved = await saveAutomatic(result.drafts,result.nursingStart,result.sleepStart);
-        showReply(result.drafts.length ? (saved ? savedReply(result.drafts) : (lang === "zh" ? "记录未保存，内容已保留，可重试保存。" : "Not saved. Your records are kept; retry saving.")) : result.reply);
+        const saved = await saveAutomatic(result.drafts,result.nursingStart,result.sleepStart,result.bottleAction);
+        await captureReview(attemptId,attemptAt,text,result,saved);
+        showReply(result.drafts.length||result.bottleAction ? (saved ? savedReply(result.drafts,result.bottleAction) : (lang === "zh" ? "记录未保存，内容已保留，可重试保存。" : "Not saved. Your records are kept; retry saving.")) : result.reply);
         setMessages(ms=>ms.map(m=>m.id===replyId?{...m,sources:result.sources}:m));
       }
       setInput("");
     } catch (error) {
+      if(!aiAbort.current?.signal.aborted)await captureReview(attemptId,attemptAt,text,undefined,false);
       addMessage("assistant", aiAbort.current?.signal.aborted ? (lang === "zh" ? "已停止。你可以修改后再次发送。" : "Stopped. You can edit and send again.") : aiFailure(error,lang));
       setInput(text);
       if(!aiAbort.current?.signal.aborted)setNotice(aiFailure(error,lang));
@@ -550,6 +625,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
     setBusy(t.transcribing);
     setFailedSpeech(null);
     let recognized = "";
+    const speechAt=m.capturedAt||new Date().toISOString();
     const controller=new AbortController();aiAbort.current=controller;
     try {
       const text = await transcribe(m,controller.signal);
@@ -560,6 +636,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
       } else setNotice(t.noSpeech);
     } catch {
       setFailedSpeech(m);
+      if(!controller.signal.aborted)try{const attachment=m.attachment||await storeAttachment(m.uri,'audio',m.mime);await update(d=>enqueueReview(d,{id:'audio-review-'+attachment.id,origin:'audio',at:speechAt,title:'语音识别未完成',sourceText:input,reason:'原录音已保留，可播放后手动补录，或重新识别。',attachments:[attachment]}));}catch{setNotice(t.fileError);}
       if(!aiAbort.current?.signal.aborted)setNotice(t.connectionError);
     } finally {
       aiAbort.current = null;
@@ -884,13 +961,14 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
               {tab === "today" ? (
                 <View style={{flex:1,minHeight:0}}>
                 {failedSpeech && <Button label={lang === "zh" ? "重试语音识别" : "Retry voice recognition"} disabled={!!busy} onPress={()=>runASR(failedSpeech)}/>}
+                <View style={{flexDirection:'row',gap:8,alignItems:'center'}}><BottleSessionCard compact data={data} onUpdate={update} disabled={!!busy||saving}/><Button small secondary label={lang==='zh'?`待核对 ${pendingReviews(data).length}`:`Review ${pendingReviews(data).length}`} onPress={()=>{setTab('records');setRecordSection('review')}}/></View>
                 <TodayView
                   {...{
                     data,
                     date,
                     wide,
                     age,
-                    messages,pendingNursing,pendingSleep,
+                    messages,pendingNursing,pendingSleep,pendingBottle,
                     onCancelAI: () => aiAbort.current?.abort(),
                     caps,
                     drafts,
@@ -927,8 +1005,8 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
               ) : tab === "records" ? (
                 <View style={{width:"100%",maxWidth:790,alignSelf:"center"}}>
                   <Heading size={29}>{lang === "zh" ? "记录" : "Records"}</Heading>
-                  <SectionTabs value={recordSection} onChange={setRecordSection} items={[{value:"timeline",label:lang === "zh" ? "时间线" : "Timeline"},{value:"trends",label:lang === "zh" ? "日常趋势" : "Daily trends"},{value:"report",label:lang === "zh" ? "成长分享" : "Share report"}]}/>
-                  {recordSection === "report" ? <ReportScreen data={data}/> : recordSection === "trends" ? <AnalyticsView data={data} onEdit={r=>setEditor({record:r,mode:"saved"})} onAsk={text=>{setTab("today");sendText(text,null);}}/> : <Journal data={data} onUpdate={update} timer={<NursingTimer data={data} onUpdate={update}/>}
+                  <SectionTabs value={recordSection} onChange={setRecordSection} items={[{value:"timeline",label:lang === "zh" ? "时间线" : "Timeline"},{value:"trends",label:lang === "zh" ? "日常趋势" : "Daily trends"},{value:"report",label:lang === "zh" ? "成长分享" : "Share report"},{value:"review",label:lang === "zh" ? "待核对" : "Review"}]}/>
+                  {recordSection === "review" ? <ReviewCenter data={data} busy={!!busy||saving} onPreview={openPreview} onEdit={(r,item)=>{setReviewEditing(item.id);setEditor({record:{...r,targetRecordId:r.id,baseVersion:recordVersion(r)},mode:'saved'})}} onAdd={editReviewRecord} onRetry={retryReview} onApply={applyReviewAction} onResolve={item=>update(d=>resolveReview(d,item.id))}/> : recordSection === "report" ? <ReportScreen data={data}/> : recordSection === "trends" ? <AnalyticsView data={data} onEdit={r=>setEditor({record:r,mode:"saved"})} onAsk={text=>{setTab("today");sendText(text,null);}}/> : <Journal data={data} onUpdate={update} timer={<><BottleSessionCard data={data} onUpdate={update} disabled={!!busy||saving}/><NursingTimer data={data} onUpdate={update}/></>}
                   records={data.records}
                   onEdit={(r) => setEditor({ record: r, mode: "saved" })}
                   onPreview={openPreview}
@@ -936,7 +1014,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
                 />}
                 </View>
               ) : tab === "baby" ? (
-                <BabyScreen onPreview={openPreview}
+                <BabyScreen onPreview={openPreview} onDeleteMedia={removeAlbumMedia}
                   data={data}
                   onSettings={() => setTab("settings")}
                   onNew={newRecord}
@@ -959,7 +1037,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
                     onClear={async () => {
                       if (await update(() => initialData)) {
                         await clearVoiceStorage(babyId);
-                        await deleteAttachments(data.records.flatMap(r=>r.attachments||[]).concat(messages.flatMap(m=>m.attachments||[]),drafts.flatMap(r=>r.attachments||[]))).catch(() =>
+                        await deleteAttachments(data.records.flatMap(r=>r.attachments||[]).concat(messages.flatMap(m=>m.attachments||[]),drafts.flatMap(r=>r.attachments||[]),(data.reviewQueue||[]).flatMap(r=>r.attachments||[]))).catch(() =>
                           setNotice(t.fileError),
                         );
                         setMessages([]);
@@ -1025,7 +1103,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
                       }))
                     ) {
                       await deleteAttachments(
-                        (editor.record.attachments || []).filter(a=>!dataRef.current.records.some(r=>r.attachments?.some(x=>x.id===a.id))),
+                        (editor.record.attachments || []).filter(a=>![...dataRef.current.records,...(dataRef.current.reviewQueue||[])].some(r=>r.attachments?.some(x=>x.id===a.id))),
                       ).catch(() => {});
                       setEditor(null);
                       setNotice(t.deleted);
@@ -1135,7 +1213,7 @@ function AppBody({babyId,babyIds,onSwitch,onAdd,entry,entryAction}:{entryAction:
             }}
           />
         </Sheet>
-        <MediaViewer attachment={previewAttachment} onClose={()=>{setPreviewAttachment(null);if(Platform.OS!=="ios")setEditorHidden(false);}} onDismiss={()=>setEditorHidden(false)}/>
+        <MediaViewer onDelete={!editor&&previewAttachment&&previewAttachment.role!=="source"&&data.records.some(r=>r.attachments?.some(a=>a.id===previewAttachment.id))?async a=>removeAlbumMedia([a.id]):undefined} attachment={previewAttachment} onClose={()=>{setPreviewAttachment(null);if(Platform.OS!=="ios")setEditorHidden(false);}} onDismiss={()=>setEditorHidden(false)}/>
       </SafeAreaView>
     </UIContext.Provider>
   );

@@ -20,7 +20,7 @@ export async function directInterpret(body:any,config:ProviderConfig,signal?:Abo
  return retryProvider(async s=>{
   const raw=readChat(config.chat.protocol,await jsonRequest(config.chat,config.chat.protocol==='anthropic'?'messages':config.chat.protocol==='responses'?'responses':'chat/completions',request,s));
   let parsed;try{parsed=JSON.parse(raw.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));}catch{throw Error('INVALID_MODEL_RESPONSE');}
-  const result=normalizeDrafts(parsed,body.text,body.pending as CareRecord[],body.records as CareRecord[]);
+  const result=normalizeDrafts(parsed,body.text,body.pending as CareRecord[],body.records as CareRecord[],{...(body.babyContext as object),now:body.now as string});
   return {...result,sources:knowledge.filter(k=>Array.isArray(parsed.sources)&&parsed.sources.includes(k.id)).map(({id,title,url})=>({id,title,url}))};
  },config,signal);
 }

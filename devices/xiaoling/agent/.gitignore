@@ -1,0 +1,7 @@
+sdk/
+vendor/
+dist/
+node_modules/
+config.local.ts
+listenai.toml
+.version

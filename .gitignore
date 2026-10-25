@@ -18,3 +18,17 @@ server/state/
 *.p12
 *.mobileprovision
 *.cer
+__pycache__/
+*.pyc
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+private/
+music-private/
+*-link.json
+*.mp3
+*.m4a
+*.wav
+*.mp4
+*.mov

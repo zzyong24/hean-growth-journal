@@ -1,3 +1,4 @@
+import {validBottleAction,type BottleAction} from './care/bottleFlow';
 import {Platform} from "react-native";
 import {loadProviders} from './providers/config';
 import {directInterpret,directTranscribe} from './providers/client';
@@ -37,8 +38,8 @@ export async function getStatus(): Promise<Capabilities> {
   const config=await loadProviders();if(config.mode==='direct')return {text:!!config.chat.baseURL,asr:!!config.asr.baseURL,omni:false};
   return request("/api/status");
 }
-function context(data: AppData, text: string) {
-  const now = new Date();
+function context(data: AppData, text: string,requestAt?:string) {
+  const now = requestAt?new Date(requestAt):new Date();
   return {
     text,
     ...deviceClock(now,data.settings.region==='CN'?'Asia/Shanghai':undefined),
@@ -57,10 +58,12 @@ export async function interpret(
   onReply?: (text: string) => void,
   images: {data:string;capturedAt?:string}[] = [],
   mediaMetadata: {type:string;capturedAt?:string}[] = [],
-): Promise<{ sleepStart?:string; nursingStart?:AppData["nursingSession"]; drafts: CareRecord[]; reply: string; sources?: {id:string;title:string;url:string}[] }> {
+  requestAt?:string,
+  recordsOverride?:CareRecord[],
+): Promise<{ bottleAction?:BottleAction;reviewReasons?:string[]; sleepStart?:string; nursingStart?:AppData["nursingSession"]; drafts: CareRecord[]; reply: string; sources?: {id:string;title:string;url:string}[] }> {
 
   const retrievalQuery=[text,...history.filter(m=>m.role==="user").slice(-3).map(m=>m.text)].join(' ');
-  const body = {...context(data,retrievalQuery),text,history:history.slice(-12).map(({role,text,at,acceptedRecords,nursingStarted})=>({role,text,at,acceptedRecords,nursingStarted})),pending,images,mediaMetadata};
+  const body = {...context(data,retrievalQuery,requestAt),...(recordsOverride?{records:recordsOverride}:{}),text,history:history.slice(-12).map(({role,text,at,acceptedRecords,nursingStarted})=>({role,text,at,acceptedRecords,nursingStarted})),pending,images,mediaMetadata};
   const config=await loadProviders();if(config.mode==='direct')return directInterpret(body,config,signal);
   return requestDeadline(requestSignal=>withTransientRetry(async()=>{
   let result:any;
@@ -80,6 +83,7 @@ export async function interpret(
     typeof result.reply !== "string"
   )
     throw new Error("INVALID_MODEL_RESPONSE");
+  if(result.bottleAction&&!validBottleAction(result.bottleAction))throw new Error('INVALID_MODEL_RESPONSE');
   if(result.sleepStart&&!Number.isFinite(Date.parse(result.sleepStart)))throw new Error("INVALID_MODEL_RESPONSE");
   if(result.nursingStart&&(!["left","right"].includes(result.nursingStart.side)||!Number.isFinite(Date.parse(result.nursingStart.at))))throw new Error("INVALID_MODEL_RESPONSE");
   for(const r of result.drafts) {

@@ -17,7 +17,7 @@ export function babyContext(data: AppData, now = new Date(), query = '') {
   const sorted = [...data.records].sort((a,b) => Date.parse(b.at)-Date.parse(a.at));
   const compact = (r: AppData['records'][number]) => ({ id:r.id,details:r.details,kind:r.kind,at:r.at,value:r.value,unit:r.unit,side:r.side,note:r.note.slice(0,1000),timePrecision:r.timePrecision,attachments:r.attachments?.map(a=>({id:a.id,type:a.type,capturedAt:a.capturedAt})),attachmentCount:r.attachments?.length || 0 });
   return {
-    ...deviceClock(now,data.settings.region==='CN'?'Asia/Shanghai':undefined), profile:data.profile, sleepStart:data.sleepStart || null, nursingSession:data.nursingSession || null,
+    ...deviceClock(now,data.settings.region==='CN'?'Asia/Shanghai':undefined), profile:data.profile, bottleSession:data.bottleSession,lastBottleFeed:data.lastBottleFeed, sleepStart:data.sleepStart || null, nursingSession:data.nursingSession || null,
     coverage:{ totalRecords:sorted.length, earliest:sorted.at(-1)?.at || null, latest:sorted[0]?.at || null },
     counts:Object.fromEntries(kinds.map(k=>[k,sorted.filter(r=>r.kind===k).length])),
     latestByKind:Object.fromEntries(kinds.map(k=>[k,sorted.find(r=>r.kind===k) ? compact(sorted.find(r=>r.kind===k)!) : null])),

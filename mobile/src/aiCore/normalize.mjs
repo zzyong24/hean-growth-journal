@@ -1,8 +1,10 @@
+import {normalizeBottleAction} from '../care/bottleFlow.ts';
 import {validateRecord,units,recordVersion,uid} from '../domain/index.ts';
-export function normalizeDrafts(result,sourceText,pending=[],saved=[]){
+export function normalizeDrafts(result,sourceText,pending=[],saved=[],context={}){
  if(!result||!Array.isArray(result.drafts)||result.drafts.length>100||typeof result.reply!=='string')throw new Error('INVALID_MODEL_RESPONSE');
  // Some providers duplicate a running session as a duration-less completed draft.
  // The typed start action owns it; never invent a completed duration.
+ const bottleAction=normalizeBottleAction(result.bottleAction,context,sourceText,context.now);
  const drafts=result.drafts.filter(d=>!(result.nursingStart&&d.kind==='nursing'&&d.value==null&&d.side===result.nursingStart.side)).map(d=>{
    const prior=pending.find(p=>p.id===d.id);
    let target=saved.find(r=>r.id===(d.targetRecordId||d.id));
@@ -26,5 +28,7 @@ export function normalizeDrafts(result,sourceText,pending=[],saved=[]){
  if(!drafts.every(validateRecord)||new Set(drafts.map(d=>d.id)).size!==drafts.length)throw new Error('INVALID_MODEL_RESPONSE');
  if(result.nursingStart&&(!['left','right'].includes(result.nursingStart.side)||!Number.isFinite(Date.parse(result.nursingStart.at))))throw new Error('INVALID_MODEL_RESPONSE');
  if(result.sleepStart&&!Number.isFinite(Date.parse(result.sleepStart)))throw new Error('INVALID_MODEL_RESPONSE');
- return {...(result.sleepStart?{sleepStart:result.sleepStart}:{}),...(result.nursingStart?{nursingStart:result.nursingStart}:{}),drafts,reply:result.reply.slice(0,12000),mode:'ai'};
+ if(bottleAction&&drafts.some(d=>d.kind==='bottle'&&(bottleAction.type==='start'?d.at===bottleAction.session.at:bottleAction.type==='finish'?d.id===bottleAction.record.id||d.at===bottleAction.record.at:false)))throw Error('DUPLICATE_BOTTLE_ACTION');
+ const reviewReasons=Array.isArray(result.reviewReasons)?result.reviewReasons.filter(x=>typeof x==='string'&&x.trim()).slice(0,20).map(x=>x.slice(0,1000)):[];
+ return {...(bottleAction?{bottleAction}:{}),reviewReasons,...(result.sleepStart?{sleepStart:result.sleepStart}:{}),...(result.nursingStart?{nursingStart:result.nursingStart}:{}),drafts,reply:result.reply.slice(0,12000),mode:'ai'};
 }

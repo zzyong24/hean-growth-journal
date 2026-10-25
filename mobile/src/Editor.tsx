@@ -117,6 +117,7 @@ export function Editor({
                 set({
                   ...r,
                   kind: k,
+                  details: undefined,
                   side: k === "nursing" ? r.side : undefined,
                 });
                 if (k === "note" || k === "diaper") setAmount("");
@@ -197,7 +198,7 @@ export function Editor({
           )}
         </View>
       )}
-      <CareDetailFields record={r} onChange={set}/>
+      <CareDetailFields record={{...r,value:amount.trim()?Number(amount):undefined}} onChange={set}/>
       {!!r.attachments?.length && (
         <View style={{ gap: 12, marginBottom: 20,flexDirection:"row",flexWrap:"wrap" }}>
           {r.attachments.map((a) => (

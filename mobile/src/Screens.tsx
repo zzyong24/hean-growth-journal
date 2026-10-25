@@ -257,12 +257,14 @@ function MeasurementChart({
   );
 }
 export function BabyScreen({
+  onDeleteMedia,
   data,
   onPreview,
   onSettings,
   onNew,
   onEdit,
 }: {
+  onDeleteMedia:(ids:string[])=>Promise<boolean>;
   data: AppData;
   onPreview: (a:NonNullable<CareRecord["attachments"]>[number])=>void;
   onSettings: () => void;
@@ -289,7 +291,7 @@ export function BabyScreen({
       </View>
       <View style={{gap:6,paddingVertical:16,marginBottom:20,borderTopWidth:1,borderBottomWidth:1,borderColor:c.line}}><Txt size={12} color={c.muted}>{data.settings.language==="zh"?"阳历":"Gregorian"} · {data.profile.birthday} {data.profile.birthTime||""}</Txt><Txt size={12} color={c.muted}>{data.settings.language==="zh"?"农历":"Lunar"} · {facts?.lunar||"—"}</Txt></View>
       <SectionTabs value={section} onChange={setSection} items={[{value:"growth",label:data.settings.language==="zh"?"生长":"Growth"},{value:"album",label:data.settings.language==="zh"?"相册":"Album"}]}/>
-      {section === "album" ? <GrowthAlbum data={data} onPreview={onPreview}/> : <>
+      {section === "album" ? <GrowthAlbum data={data} onPreview={onPreview} onDelete={onDeleteMedia}/> : <>
       <View style={{flexDirection:"row",gap:8}}>{(["weight","height","head"] as const).map(k=><Choice key={k} label={t[k]} selected={kind===k} onPress={()=>{setKind(k);setMeasurementLimit(30)}}/>)}</View>
       <View style={{ flexDirection: "row", gap: 8, marginTop: 16 }}>
         {([30,90,0] as const).map(days => <Choice key={days} label={days ? `${days}${data.settings.language === "zh" ? "天" : " days"}` : data.settings.language === "zh" ? "全部" : "All"} selected={range === days} onPress={() => setRange(days)} />)}
@@ -400,6 +402,8 @@ export function SettingsScreen({
       <Heading size={18}>{data.settings.language==="zh"?"宝宝与记录":"Baby & logging"}</Heading>
       {row(data.settings.language==="zh"?"宝宝档案":"Baby profile",data.profile.name,Check,onProfile)}
       {row(data.settings.language==="zh"?"新手引导":"Getting started", "", RefreshCw,onGuide)}
+      {row(data.settings.language==="zh"?"小聆语音同步":"Assistant sync", data.settings.assistantSync?(data.settings.language==='zh'?'已开启':'On'):(data.settings.language==='zh'?'已关闭':'Off'), RefreshCw,()=>onSettings({...data.settings,assistantSync:!data.settings.assistantSync}))}
+      {data.settings.assistantSync&&<Txt size={12} color={c.muted}>{data.settings.language==='zh'?'小聆先保存原话与回执；禾安打开时自动同步。记录内容会同步到你的禾安服务，照片和视频不上传。':'Voice receipts are queued on your Hean service and sync when the app opens. Care records sync; photos and videos stay on device.'}</Txt>}
       {row(data.settings.language==="zh"?"Siri 快速记录":"Siri quick logging", "", RefreshCw,()=>setVoiceGuide(true))}
       {row(data.settings.language==="zh"?"桌面与锁屏小组件":"Home & Lock Screen widgets", "", Plus,()=>setWidgetGuide(true))}
       <Sheet visible={widgetGuide} title={data.settings.language==="zh"?"添加小组件":"Add a widget"} onClose={()=>setWidgetGuide(false)}><Txt>{data.settings.language==="zh"?"长按 iPhone 桌面空白处 → 编辑 → 添加小组件 → 搜索 禾安成长日记。锁屏长按 → 自定 → 添加小组件。小组件显示 App 当前宝宝最近同步的概况，点击后进入该宝宝的记录对话。":"Long press the Home Screen → Edit → Add Widget → 禾安成长日记. On the Lock Screen, choose Customize → Add Widgets. Shows the current baby’s last synced summary; tap to log."}</Txt></Sheet>

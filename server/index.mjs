@@ -57,7 +57,7 @@ export function createServer(){return http.createServer(async(req,res)=>{
    const emit=(event)=>{if(!res.headersSent)res.writeHead(200,{'Content-Type':'application/x-ndjson','X-Accel-Buffering':'no'});res.write(JSON.stringify(event)+'\n')};
    const result=await routeModel({providers:configuredModels(),signal:controller.signal,hedgeAfterMs:12000,
     run:(provider,signal)=>completion(provider.url,provider.key,{...provider.options,stream:provider.id!=='primary',messages:[{role:'system',content:prompt+' '+knowledgePolicy+(imageClock?imageTimePrompt:'')},{role:'user',content:userContent}]},signal),
-    validate:out=>{const parsed=parseModelJSON(out);const timed=imageClock?normalizeImageTimes(parsed,body.timezone):parsed;const value=normalizeDrafts(timed,body.text,body.pending||[],(body.records||[]).filter(validateRecord));value.sources=parentingKnowledge.filter(c=>Array.isArray(parsed.sources)&&parsed.sources.includes(c.id)).map(({id,title,url})=>({id,title,url}));return value;}});
+    validate:out=>{const parsed=parseModelJSON(out);const timed=imageClock?normalizeImageTimes(parsed,body.timezone):parsed;const value=normalizeDrafts(timed,body.text,body.pending||[],(body.records||[]).filter(validateRecord),{...body.babyContext,now:body.now});value.sources=parentingKnowledge.filter(c=>Array.isArray(parsed.sources)&&parsed.sources.includes(c.id)).map(({id,title,url})=>({id,title,url}));return value;}});
    // Publish only one validated response; a failed provider cannot leave a partial receipt.
    if(streaming){emit({reply:result.reply});emit({result});res.end();}else reply(200,result);return;
   }

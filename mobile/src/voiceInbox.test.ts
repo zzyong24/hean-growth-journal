@@ -33,3 +33,15 @@ test('Siri correction keeps target ID and undo restores the original value',()=>
  const restored=applyReceipts(saved,[{...receipt,status:'undone'}]).data;
  assert.equal(restored.records.length,1);assert.equal(restored.records[0].value,50);
 });
+import {recordVersion} from './domain';
+test('assistant session starts persist once and end with the corresponding event',()=>{
+ const start:any={...receipt,id:'sleep-start',records:[],sleepStart:'2026-10-25T01:00:00Z'};
+ const first=applyReceipts(initialData,[start]);assert.equal(first.data.sleepStart,start.sleepStart);
+ const end:any={...receipt,id:'sleep-end',records:[{id:'s1',kind:'sleep',at:'2026-10-25T03:00:00Z',value:120,note:'',sourceText:''}]};
+ assert.equal(applyReceipts(first.data,[start,end]).data.sleepStart,undefined);
+});
+test('stale remote correction becomes a review, preserving newer phone data',()=>{
+ const original:any={id:'milk',kind:'bottle',at:'2026-10-25T01:00:00Z',value:70,note:'',sourceText:''};
+ const changed={...original,value:80};const r:any={...receipt,id:'stale',records:[{...original,value:60,targetRecordId:'milk',baseVersion:recordVersion(original)}]};
+ const result=applyReceipts({...initialData,records:[changed]},[r]);assert.equal(result.data.records[0].value,80);assert.equal(result.incoming[0].status,'review');assert.ok(result.data.voiceReceiptIds?.includes('stale:saved'));
+});

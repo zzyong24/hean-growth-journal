@@ -1,4 +1,6 @@
-import { validDetails, type CareDetails } from "../care/details.ts";
+import type {BottleSession,BottleFinish} from '../care/bottleFlow.ts';
+import type {ReviewEntry} from '../review/queue.ts';
+import { validDetails, eliminationSummary, type CareDetails } from "../care/details.ts";
 export type Kind =
   | "bottle"
   | "nursing"
@@ -10,6 +12,8 @@ export type Kind =
   | "head" | "pumping" | "food" | "medicine" | "supplement"
   | "note";
 export type Attachment = {
+  sourceAssetId?: string;
+  role?: "source" | "memory";
   livePhoto?: Attachment;
   capturedAt?: string;
   assetId?: string;
@@ -46,15 +50,23 @@ export type Profile = {
 export type Settings = {
   onboardingVersion?: number;
   voiceQuickRecord?: boolean;
+  assistantSync?: boolean;
   language: "zh" | "en";
   theme: "peach" | "sage" | "night";
   region: "CN" | "overseas";
 };
 export type AppData = {
+  mediaDeletionPending?: Attachment[];
+  deletedMediaIds?: string[];
+  bottleSession?: BottleSession;
+  lastBottleFeed?: BottleFinish;
+  bottleHistory?: {session:BottleSession;record?:CareRecord;status:string;at:string}[];
+  reviewQueue?: ReviewEntry[];
   reminders?: import("../reminders/plan").Reminder[];
   babyId?: string;
   nursingSession?: {at:string;side:"left"|"right"};
   voiceReceiptIds?: string[];
+  voiceReceiptConflicts?: string[];
   version: 1;
   profile: Profile;
   settings: Settings;
@@ -123,8 +135,12 @@ export function validateRecord(r: any): boolean {
   if (r.value !== undefined && (!Number.isFinite(r.value) || r.value < 0))
     return false;
   if (!validDetails(r.details)) return false;
+  if (r.kind!=="diaper" && (r.details?.urinationCount!==undefined || r.details?.diaperChangeCount!==undefined)) return false;
+  if (r.details?.preparedMl !== undefined && (r.kind !== 'bottle' || Number(r.details.preparedMl) < r.value)) return false;
   if (["food","medicine","supplement"].includes(r.kind)&&!r.details?.item?.trim()) return false;
-  if (!["diaper", "note", "food", "medicine", "supplement"].includes(r.kind) && !(Number(r.value) > 0))
+  if (r.kind === 'bottle' && r.details?.preparedMl !== undefined
+    ? !(Number(r.details.preparedMl)>0 && Number.isFinite(r.value))
+    : !["diaper", "note", "food", "medicine", "supplement"].includes(r.kind) && !(Number(r.value) > 0))
     return false;
   if (r.side !== undefined && !["left", "right", "both"].includes(r.side))
     return false;
@@ -273,7 +289,8 @@ export function statsForDay(records: CareRecord[], day = new Date()) {
     nursing: rs
       .filter((r) => r.kind === "nursing")
       .reduce((s, r) => s + (r.value || 0), 0),
-    diapers: rs.filter((r) => r.kind === "diaper").length,
+    diapers: eliminationSummary(rs).changes.total,
+    urinations: eliminationSummary(rs).urinations.total,
     sleep: rs
       .filter((r) => r.kind === "sleep")
       .reduce((s, r) => s + (r.value || 0), 0),

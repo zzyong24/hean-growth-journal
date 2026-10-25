@@ -1,4 +1,4 @@
-import {detailLabels} from "./care/details";
+import {formattedDetails} from "./care/details";
 import {
   AppTextInput,
   DateControl,
@@ -498,7 +498,7 @@ export function RecordRow({
           )}
           {receipt&&<View style={{marginLeft:'auto',paddingLeft:6,flexDirection:'row',alignItems:'center',gap:4}}><Txt size={11} color={c.muted}>{timeLabel}</Txt>{onPress&&<ChevronRight size={14} color={c.muted}/>}</View>}
         </View>
-        {record.details&&<Txt size={12} color={c.muted}>{Object.values(record.details).map(v=>detailLabels[v]?.[lang==="zh"?0:1]||v).join(" · ")}</Txt>}
+        {record.details&&<Txt size={12} color={c.muted}>{formattedDetails(record,lang)}</Txt>}
         {record.kind === "sleep" && record.value !== undefined && <Txt size={12} color={c.primary}>{new Date(Date.parse(record.at)-record.value*60000).toLocaleTimeString(lang==="zh"?"zh-CN":"en-US",{hour:"2-digit",minute:"2-digit",hour12:false})} → {date.toLocaleTimeString(lang==="zh"?"zh-CN":"en-US",{hour:"2-digit",minute:"2-digit",hour12:false})}</Txt>}
         <Txt size={12} color={c.muted} numberOfLines={compact ? 1 : 2}>
           {record.side

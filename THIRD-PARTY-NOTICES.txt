@@ -92,3 +92,17 @@ INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
 DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
+
+
+ListenAI development dependencies
+--------------------------------
+The XiaoLing integration downloads the official Agent SDK 0.1.1 and official
+voice-agent modules at bootstrap time. These generated sdk/ and vendor/ files
+are not redistributed in this repository and remain subject to their own terms.
+The LingClaw SDK / simulator and device firmware are separate upstream projects.
+Project MIT licensing does not relicense these SDKs or firmware.
+References: https://github.com/LISTENAI/ling
+            https://github.com/LISTENAI/LingClaw-SDK
+
+Private family music is not included in this source release. Supply your own
+authorized audio files; track names in the code are configuration labels.

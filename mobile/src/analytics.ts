@@ -1,5 +1,6 @@
+import {milkBalance,eliminationSummary} from "./care/details";
 import { CareRecord } from "./domain";
-export type Metric = "milk" | "nursing" | "sleep" | "diapers";
+export type Metric = "milk" | "nursing" | "sleep" | "diapers" | "urinations";
 export function dayBounds(date: Date) {
   const start = new Date(date);
   start.setHours(0, 0, 0, 0);
@@ -52,9 +53,9 @@ export function dayAnalytics(records: CareRecord[], date: Date) {
     sleep: rows.some((r) => r.kind === "sleep")
       ? sleepMinutes(rows, +start, +end)
       : null,
-    diapers: rows.some((r) => r.kind === "diaper")
-      ? rows.filter((r) => r.kind === "diaper").length
-      : null,
+    diapers: eliminationSummary(rows).changes.total,
+    urinations: eliminationSummary(rows).urinations.total,
+    elimination: eliminationSummary(rows),
     feeds: rows.filter((r) => r.kind === "bottle" || r.kind === "nursing")
       .length,
   };
@@ -77,7 +78,8 @@ export function trendQuestion(
     milk: zh ? "瓶喂奶量" : "bottle milk",
     nursing: zh ? "亲喂时长" : "nursing duration",
     sleep: zh ? "睡眠时长" : "sleep duration",
-    diapers: zh ? "尿布次数" : "diaper count",
+    diapers: zh ? "换尿布次数" : "diaper changes",
+    urinations: zh ? "小便次数" : "urinations",
   };
   return zh ? `最近7天的${labels[metric]}有什么变化？` : `How has ${labels[metric]} changed in the last seven days?`;
 }
@@ -89,5 +91,7 @@ export function feedingSummary(records:CareRecord[],days:number,now=new Date()){
  const start=new Date(now);start.setDate(start.getDate()-days+1);start.setHours(0,0,0,0);
  const rows=records.filter(r=>r.kind==='bottle'&&Date.parse(r.at)>=+start&&Date.parse(r.at)<=+now);
  const values=rows.map(r=>r.value||0);const total=values.reduce((a,b)=>a+b,0);
- return {count:rows.length,total:rows.length?total:null,average:rows.length?total/rows.length:null,min:rows.length?Math.min(...values):null,max:rows.length?Math.max(...values):null};
+ const balances=rows.map(milkBalance).filter(b=>b!==null);
+ const prepared=balances.reduce((n,b)=>n+b.prepared,0),leftover=balances.reduce((n,b)=>n+b.leftover,0);
+ return {preparedCount:balances.length,prepared:balances.length?prepared:null,leftover:balances.length?leftover:null,leftoverRate:prepared>0?leftover/prepared:null,count:rows.length,total:rows.length?total:null,average:rows.length?total/rows.length:null,min:rows.length?Math.min(...values):null,max:rows.length?Math.max(...values):null};
 }

@@ -1,1 +1,13 @@
-{"name":"baby-ai-service","private":true,"type":"module","scripts":{"start":"node --env-file-if-exists=.env index.mjs","test":"node --test *.test.mjs"},"dependencies":{"fastify":"^5.12.3"}}
+{
+  "name": "baby-ai-service",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env index.mjs",
+    "test": "node --test *.test.mjs",
+    "gateway": "node --env-file-if-exists=.env gateway.mjs"
+  },
+  "dependencies": {
+    "fastify": "^5.12.3"
+  }
+}

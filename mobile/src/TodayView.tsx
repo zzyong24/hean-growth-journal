@@ -54,6 +54,7 @@ type Props = {
   messages: { at?:string; sleepStarted?:string; acceptedRecords?: CareRecord[]; nursingStarted?: AppData["nursingSession"]; id: string; role: "user" | "assistant"; text: string; sources?: {id:string;title:string;url:string}[]; attachments?: NonNullable<CareRecord["attachments"]> }[];
   onPreview: (a:NonNullable<CareRecord["attachments"]>[number])=>void;
   caps: Capabilities;
+  pendingBottle?:import("./care/bottleFlow").BottleAction;
   pendingSleep?:string;
   pendingNursing?:AppData["nursingSession"];
   drafts: CareRecord[];
@@ -348,7 +349,7 @@ export function TodayView(p: Props) {
         </Txt>
       </View>
     );
-  const draftCards = drafts.length || p.pendingNursing || p.pendingSleep ? (
+  const draftCards = drafts.length || p.pendingNursing || p.pendingSleep || p.pendingBottle ? (
     <View
       style={{
         backgroundColor: c.tint,
@@ -361,6 +362,7 @@ export function TodayView(p: Props) {
       <Txt size={13} color={c.primary}>
         {lang === "zh" ? "尚未保存" : "Not saved"} · {drafts.length}
       </Txt>
+      {p.pendingBottle&&<Txt>{lang==='zh'?'这顿奶的操作尚未保存，请重试保存。':'Bottle action not saved. Retry saving.'}</Txt>}
       {p.pendingSleep&&<Txt>{lang==='zh'?'睡眠开始 · 等待保存':'Sleep start · Not saved'}</Txt>}
       {p.pendingNursing&&<Txt>{lang==='zh'?'亲喂开始 · 等待保存':'Nursing start · Not saved'}</Txt>}
       {drafts.map((r) => (

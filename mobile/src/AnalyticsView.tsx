@@ -32,7 +32,7 @@ export function TodayOverview({
   return <Pressable accessibilityRole="button" accessibilityLabel={zh?"今日概览，查看趋势":"Today summary, view trends"} onPress={onOpen} style={{flex:1,minWidth:0,backgroundColor:c.tint,borderRadius:16,padding:10,gap:5}}>
     <View style={layout.between}><Txt size={11} color={c.primary}>{zh?"今天":"Today"}</Txt><Txt size={11} color={c.primary}>↗</Txt></View>
     <View style={{flexDirection:"row",gap:6}}>
-      {[{label:zh?"瓶喂":"Milk",value:d.milk,unit:"ml"},{label:zh?"睡眠":"Sleep",value:d.sleep===null?null:Math.round(d.sleep/6)/10,unit:"h"},{label:zh?"尿布":"Diapers",value:d.diapers,unit:zh?"次":""}].map(m=><View key={m.label} style={{flex:1,minWidth:0,gap:2}}><Txt size={11} color={c.muted}>{m.label}</Txt><Txt size={15} weight="500">{m.value??"—"}<Txt size={10}> {m.unit}</Txt></Txt></View>)}
+      {[{label:zh?"瓶喂":"Milk",value:d.milk,unit:"ml"},{label:zh?"睡眠":"Sleep",value:d.sleep===null?null:Math.round(d.sleep/6)/10,unit:"h"},{label:zh?"换尿布":"Changes",value:d.diapers,unit:zh?"次":""}].map(m=><View key={m.label} style={{flex:1,minWidth:0,gap:2}}><Txt size={11} color={c.muted}>{m.label}</Txt><Txt size={15} weight="500">{m.value??"—"}<Txt size={10}> {m.unit}</Txt></Txt></View>)}
     </View>
     {mins!==null&&<Txt size={10} color={c.muted}>{zh?"距上次喂养 ":"Last feed "}{mins<60?`${mins} min`:`${Math.floor(mins/60)}h ${mins%60}m`}</Txt>}
   </Pressable>;
@@ -62,12 +62,13 @@ export function AnalyticsView({
     milk: zh ? "瓶喂奶量" : "Bottle milk",
     nursing: zh ? "亲喂时长" : "Nursing",
     sleep: zh ? "睡眠时长" : "Sleep",
-    diapers: zh ? "尿布次数" : "Diapers",
+    diapers: zh ? "换尿布次数" : "Diaper changes",
+    urinations: zh ? "小便次数" : "Urinations",
   };
   const unit =
     metric === "milk"
       ? "ml"
-      : metric === "diapers"
+      : (metric === "diapers" || metric === "urinations")
         ? zh
           ? "次"
           : "times"
@@ -103,6 +104,7 @@ export function AnalyticsView({
       </ScrollView>
       <Txt size={11} color={c.muted}>
         {labels[metric]} · {unit}
+        {(metric==='diapers'||metric==='urinations')&&(zh?' · 仅统计明确记录的次数，未填不算零次':' · Explicit counts only; missing is not zero')}
       </Txt>
       <ScrollView horizontal showsHorizontalScrollIndicator={period===30}>
       <View
@@ -155,8 +157,15 @@ export function AnalyticsView({
       </View>
       </ScrollView>
 
-      {metric === "milk" && <View style={{flexDirection:"row",flexWrap:"wrap",gap:18}}>{[[zh?"记录次数":"Feeds",summary.count],[zh?"累计奶量":"Total ml",summary.total],[zh?"每次平均":"Average ml",summary.average],[zh?"单次最多":"Max ml",summary.max],[zh?"单次最少":"Min ml",summary.min]].map(([label,value])=><View key={String(label)}><Txt size={11} color={c.muted}>{label}</Txt><Txt size={20}>{typeof value==="number"?Math.round(value*10)/10:"—"}</Txt></View>)}</View>}
+      {metric === "milk" && <View style={{flexDirection:"row",flexWrap:"wrap",gap:18}}>{[[zh?"记录次数":"Feeds",summary.count],[zh?"实际喝下 ml":"Consumed ml",summary.total],[zh?"每次平均":"Average ml",summary.average],[zh?"单次最多":"Max ml",summary.max],[zh?"单次最少":"Min ml",summary.min]].map(([label,value])=><View key={String(label)}><Txt size={11} color={c.muted}>{label}</Txt><Txt size={20}>{typeof value==="number"?Math.round(value*10)/10:"—"}</Txt></View>)}</View>}
 
+      {metric==='milk'&&<View style={{gap:6,padding:14,backgroundColor:c.tint,borderRadius:12}}>
+        <Txt>{zh?'冲泡与剩余':'Prepared and leftover'}</Txt>
+        <Txt>{summary.preparedCount?(zh?`冲泡 ${summary.prepared} ml · 剩余 ${summary.leftover} ml · 剩余比例 ${Math.round((summary.leftoverRate||0)*100)}%`:`Prepared ${summary.prepared} ml · Left ${summary.leftover} ml · ${Math.round((summary.leftoverRate||0)*100)}% left`):(zh?'还没有同时记录冲泡量和实际喝下量。':'No feeds with both prepared and consumed amounts yet.')}</Txt>
+        <Txt size={11} color={c.muted}>{zh
+          ? `已统计 ${summary.preparedCount} 次记录。${summary.count>summary.preparedCount?`另有 ${summary.count-summary.preparedCount} 次剩余量待补充。`:''}剩余量不等于已丢弃量。`
+          : `Based on ${summary.preparedCount} feeds. ${summary.count>summary.preparedCount?`${summary.count-summary.preparedCount} feeds need leftover details. `:''}Leftover does not mean discarded.`}</Txt>
+      </View>}
       <Button
         label={zh ? "问问 AI：有什么变化？" : "Ask AI about this period"}
         secondary
