@@ -1,3 +1,4 @@
+import {dashboardDelivery} from './dashboard.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import Fastify from 'fastify';
 import {voiceStore} from './voice-store.mjs';import {registerVoiceRoutes} from './voice-routes.mjs';import {registerVoiceChat,chatHistory} from './voice-chat.mjs';
 const data={version:1,profile:{name:'test',birthday:'2026-08-30'},settings:{language:'zh',theme:'peach',region:'CN'},records:[]};
@@ -5,7 +6,7 @@ const call=(name,args)=>({role:'assistant',tool_calls:[{id:'call_test',type:'fun
 async function setup(infer){
  const store=voiceStore(':memory:');store.sync('owner','baby',data);const token=store.pair('owner','baby','test'),display=store.pairDisplay('owner','baby');
  const up=Fastify();let parses=0;up.post('/api/interpret',async()=>{parses++;return {drafts:[{id:'test-milk-'+parses,kind:'bottle',at:'2026-10-25T07:00:00Z',value:100,note:'',sourceText:'刚喝了100毫升'}]}});await up.listen({port:0,host:'127.0.0.1'});
- const app=Fastify();app.addHook('onRequest',async req=>{req.voiceLink=store.identify(req.headers.authorization?.replace('Bearer ',''));});registerVoiceRoutes(app,{store,upstream:up.listeningOrigin,internalToken:'test',quota:()=>true});registerVoiceChat(app,{store,infer,log:()=>{}});
+ const app=Fastify();app.addHook('onRequest',async req=>{req.voiceLink=store.identify(req.headers.authorization?.replace('Bearer ',''));});registerVoiceRoutes(app,{store,upstream:up.listeningOrigin,internalToken:'test',quota:()=>true});registerVoiceChat(app,{store,infer,dashboard:dashboardDelivery(store),log:()=>{}});
  const post=(messages,extra={},key=token)=>app.inject({method:'POST',url:'/api/voice/chat/completions',headers:{authorization:'Bearer '+key},payload:{messages,...extra}});
  return {store,post,display,parses:()=>parses,close:async()=>{await app.close();await up.close();store.close()}};
 }
@@ -82,4 +83,18 @@ test('slow care returns spoken acknowledgement before parsing completes, then sa
  const app=Fastify();app.addHook('onRequest',async req=>{req.voiceLink=store.identify(req.headers.authorization?.replace('Bearer ',''))});registerVoiceRoutes(app,{store,upstream:up.listeningOrigin,internalToken:'test',quota:()=>true});registerVoiceChat(app,{store,infer:async()=>call('hean_route',{intent:'record'}),log:()=>{}});
  try{const response=await app.inject({method:'POST',url:'/api/voice/chat/completions',headers:{authorization:'Bearer '+token},payload:{messages:[{role:'user',content:'补记上午7点喝了70毫升'}]}});assert.match(response.json().choices[0].message.content,/收到，正在保存/);assert.equal(store.list('owner','baby')[0].status,'processing');assert.equal(store.state('owner','baby').data.records.length,0);release();await app.close();assert.equal(store.list('owner','baby')[0].status,'saved');assert.equal(store.state('owner','baby').data.records[0].value,70);
  }finally{release();await app.close();await up.close();store.close()}
+});
+
+test('reopening a screen issues scoped install parameters without AI or care writes and never replays a receipt',async()=>{
+ const x=await setup(async()=>{throw Error('must not invoke model')});
+ try{
+  const tools=[nativeTool('hean_open_dashboard')],input=[{role:'user',content:'重新打开禾安看板'}];
+  const response=(await x.post(input,{tools})).json().choices[0].message;const c=response.tool_calls[0],args=JSON.parse(c.function.arguments);
+  assert.equal(c.function.name,'hean_open_dashboard');assert.match(args.id,/^hean-/);assert.match(args.url,/https:\/\/hean.example.com\/api\/display\/app.lua\?ticket=/);assert.equal(args.hash,args.version);assert.ok(args.size>1000);assert.equal(x.parses(),0);assert.equal(x.store.list('owner','baby').length,0);
+  const pending=(await x.post([...input,response],{tools})).json().choices[0].message;assert.match(pending.content,/暂未收到设备确认/);assert.equal(pending.tool_calls,undefined);
+  for(const [text,pattern] of [['HEAN_DASHBOARD_STARTED',/禾安看板已打开/],['HEAN_DASHBOARD_UNCONFIRMED',/未能确认/]]){
+   const r=(await x.post([...input,response,{role:'tool',tool_call_id:c.id,content:text}],{tools})).json().choices[0].message;assert.match(r.content,pattern);assert.equal(r.tool_calls,undefined);
+  }
+  assert.match((await x.post(input)).json().choices[0].message.content,/还没有接好/);
+ }finally{await x.close()}
 });

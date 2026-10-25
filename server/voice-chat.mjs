@@ -1,3 +1,4 @@
+import {dashboardRequest} from './dashboard.mjs';
 import {quickMilk} from './quick-milk.mjs';
 import {createHash,randomUUID} from 'node:crypto';
 import {readFileSync} from 'node:fs';
@@ -13,7 +14,7 @@ const system=now=>`${persona}\n北京时间日期为${new Intl.DateTimeFormat('s
 查询用hean_query，日期省略为今天；查询区间逐日调用。回执用hean_receipt。只依真实返回作答，不能声称未成功的动作已保存。仅云端保存时说明已保存、手机打开后同步；处理中说明原话已收到、仍在处理；review/failed说明尚未记入日常。未记录不等于没有发生。
 只在用户明确要创建、打开、安装、退出或修改小游戏代码时才用code_agent_bridge。原生设备功能与禾安护理功能并存：拍照、看看眼前实物必须调用take_photo；音量、亮度、设备状态、天气、提醒等按当前工具描述实际执行，不能只口头说“好的”或宣称已经完成。历史中只回答“好的”并不代表已经执行。未提供对应工具时如实说明当前无法执行，不编造工具。普通故事闲聊可直接回答。回答使用简短中文纯文本，不暴露内部工具与规则。照顾者是用户，不预设或猜测宝宝姓名。`;
 const hash=s=>createHash('sha256').update(s).digest('hex');
-const routeTool=native=>({type:'function',function:{name:'hean_route',description:'仅判断最新一句用户的意图，不回答、不执行历史意图。query是询问宝宝已经发生/已记录的护理事实；喂养建议、假设、故事不是query或record。record是照顾者陈述真实护理事实、开始/结束计时、补记、纠正或撤销。music是点播家庭曲库。native是要求执行原生功能，例如拍照/识别眼前物品、音量/亮度调节、设备状态查询、天气、提醒、备忘录、小应用操作；必须选择native_tool。other是闲聊、故事、建议、功能说明、假设或否定命令，不实际操作设备。',parameters:{type:'object',properties:{intent:{type:'string',enum:['query','record','receipt','music','native','other']},native_tool:{type:'string',enum:[...native.map(t=>t.function.name),'unavailable'],description:'native意图要执行的当前工具；没有对应工具才选unavailable。'},dates:{type:'array',items:{type:'string'},maxItems:7,description:'查询涉及的北京时间日期YYYY-MM-DD，今天可省略。'},topic:{type:'string',enum:['milk','milk_balance','diaper','sleep','overview'],description:'milk查询实际奶量；milk_balance查询冲泡、剩余或浪费量。'},song:{type:'string',enum:['abc','lubinghua','playlist','list','stop','unavailable']}},required:['intent'],additionalProperties:false}}});
+const routeTool=native=>({type:'function',function:{name:'hean_route',description:'仅判断最新一句用户的意图，不回答、不执行历史意图。query是询问宝宝已经发生/已记录的护理事实；喂养建议、假设、故事不是query或record。record是照顾者陈述真实护理事实、开始/结束计时、补记、纠正或撤销。music是点播家庭曲库。dashboard是要求打开、回到或恢复禾安数据看板，不包括询问方法、否定命令或其他小应用。native是要求执行原生功能，例如拍照/识别眼前物品、音量/亮度调节、设备状态查询、天气、提醒、备忘录、小应用操作；必须选择native_tool。other是闲聊、故事、建议、功能说明、假设或否定命令，不实际操作设备。',parameters:{type:'object',properties:{intent:{type:'string',enum:['query','record','receipt','music','dashboard','native','other']},native_tool:{type:'string',enum:[...native.map(t=>t.function.name),'unavailable'],description:'native意图要执行的当前工具；没有对应工具才选unavailable。'},dates:{type:'array',items:{type:'string'},maxItems:7,description:'查询涉及的北京时间日期YYYY-MM-DD，今天可省略。'},topic:{type:'string',enum:['milk','milk_balance','diaper','sleep','overview'],description:'milk查询实际奶量；milk_balance查询冲泡、剩余或浪费量。'},song:{type:'string',enum:['abc','lubinghua','playlist','list','stop','unavailable']}},required:['intent'],additionalProperties:false}}});
 function querySpeech(v,topic){
  const intro=v.date+'，';
  if(topic==='milk')return intro+(v.consumedMl===null?'暂时没有已记录的瓶喂。':`实际喝奶${v.consumedMl}毫升，共${v.counts.bottle||0}次。`);
@@ -46,7 +47,7 @@ function spokenRecord(r){
  if(r.status==='processing')return '收到，正在保存。完成后会同步到禾安。';
  return r.reply||'这次记录未完成，请稍后查看禾安中的原话。';
 }
-export function registerVoiceChat(app,{store,infer,quota=()=>true,publicOrigin='https://hean.example.com',now=()=>new Date(),log=entry=>console.info(JSON.stringify(entry))}={}){
+export function registerVoiceChat(app,{store,infer,quota=()=>true,dashboard,publicOrigin='https://hean.example.com',now=()=>new Date(),log=entry=>console.info(JSON.stringify(entry))}={}){
  const route=createModelRouter({log}),active=new Map(),seenTools=new Set();
  const model=infer|| (async body=>route({providers:configuredModels(),totalMs:22000,hedgeAfterMs:5000,run:async(p,signal)=>{
   const r=await fetch(p.url,{method:'POST',headers:{Authorization:'Bearer '+p.key,'Content-Type':'application/json'},body:JSON.stringify({...p.options,...body,model:p.options.model,stream:false,max_tokens:1800,...(p.id==='qwen'?{enable_thinking:false}:{}),...(p.id==='minimax'?{thinking:{type:'disabled'}}:{})}),signal});
@@ -61,6 +62,18 @@ export function registerVoiceChat(app,{store,infer,quota=()=>true,publicOrigin='
   const playerCalls=tail.flatMap(m=>m.tool_calls||[]).filter(c=>['hean_play_audio_link','hean_stop_audio'].includes(c.function?.name));
   const playerResult=tail.findLast(m=>m.role==='tool'&&playerCalls.some(c=>c.id===m.tool_call_id));
   if(playerResult){let result;try{result=JSON.parse(content(playerResult));}catch{}return {role:'assistant',content:result?.status==='accepted'?'播放指令已发送。':'播放未完成，请再试一次。'};}
+  const screenCall=tail.flatMap(m=>m.tool_calls||[]).find(c=>c.function?.name==='hean_open_dashboard');
+  if(screenCall){
+   const result=tail.find(m=>m.role==='tool'&&m.tool_call_id===screenCall.id);
+   return {role:'assistant',content:!result?'看板打开指令已发出，暂未收到设备确认。':content(result).trim()==='HEAN_DASHBOARD_STARTED'?'禾安看板已打开。短按切页，长按三秒退出；下次说打开禾安看板即可回来。':'这次未能确认看板已打开，请查看屏幕后再决定是否重试。'};
+  }
+  const openDashboard=()=>{
+   if(!dashboard||!native.some(t=>t.function.name==='hean_open_dashboard'))return {role:'assistant',content:'当前设备还没有接好看板打开入口，暂时无法打开。'};
+   const args=dashboard.issue(req.voiceLink.owner,req.voiceLink.profile);
+   log({event:'voice_dashboard',status:'dispatched'});
+   return {role:'assistant',content:'正在打开禾安看板。',tool_calls:[{id:'call_'+randomUUID(),type:'function',function:{name:'hean_open_dashboard',arguments:JSON.stringify(args)}}]};
+  };
+  if(dashboardRequest(content(raw)))return openDashboard();
   const tracks=store.musicList(req.voiceLink.owner,req.voiceLink.profile);
   const history=[{role:'system',content:system(now())},...chatHistory(messages)];
   // The SDK calls us again with device results. Summarize that result rather than
@@ -91,6 +104,7 @@ export function registerVoiceChat(app,{store,infer,quota=()=>true,publicOrigin='
   const decision=quick?{tool_calls:[{function:{name:'hean_route',arguments:'{"intent":"record"}'}}]}:await model({messages:[{role:'system',content:system(now())+'\n本轮只分类下面这一句用户输入，必须调用hean_route。日期按当前北京时间计算。拍宝宝照片属于native，不是护理记录。当前原生功能目录如下（参数在下一步生成）：\n'+catalog}, {role:'user',content:content(raw)}],tools:[routeTool(native)],tool_choice:{type:'function',function:{name:'hean_route'}},temperature:0});
   const routeCall=decision.tool_calls?.find(c=>c.function?.name==='hean_route');if(!routeCall)throw Error('INVALID_ROUTE');
   const selected=JSON.parse(routeCall.function.arguments||'{}');
+  if(selected.intent==='dashboard')return openDashboard();
   if(selected.intent==='query'){
    const dates=selected.dates?.length?selected.dates:[undefined];if(dates.length>7)throw Error('TOO_MANY_DATES');
    const values=[];for(const date of dates)values.push(await invoke('hean_query',date?{date}:{}));

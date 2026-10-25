@@ -24,6 +24,8 @@ ALLOWED_ORIGINS=https://hean.example.com
 
 `hean.example.com` 是占位符，部署时替换为真实 HTTPS 域名。服务在 127.0.0.1 监听。运行 `npm --prefix server run gateway`；服务端密钥只在服务机器上配置。gateway 内部生成模型代理的 APP_TOKEN，不把它当成手机访客令牌。
 
+部署目录应保留仓库相对布局，包括 `server/`、共享领域代码 `mobile/src/` 及 `devices/xiaoling/hean.lua` 公共模板。语音打开看板由服务器渲染该模板，签发五分钟下载票据；不要上传已填入家庭凭据的 Lua 作为模板。`PUBLIC_ORIGIN` 也用于看板下载，必须是与 Agent 配置一致的 HTTPS 源站。
+
 最小 systemd 示例（先创建低权限 `hean` 用户，安装依赖和 Node 24）：
 
 ```ini

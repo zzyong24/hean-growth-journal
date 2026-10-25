@@ -3,6 +3,7 @@ import {DefaultToolProvider, type ToolPreparationContext} from './vendor/tools/d
 import type {VoiceTurnContext} from './vendor/types';
 import {musicOrigin} from './config.local';
 import {withNativeErrorFeedback} from './nativeResults';
+import {DashboardLauncher,dashboardDefinition} from './dashboard';
 
 export const playDefinition:FunctionTool={type:'function',function:{
   name:'hean_play_audio_link',description:'播放禾安家庭曲库中用户提供的音乐。仅接受禾安签发的临时音频链接。',
@@ -23,6 +24,16 @@ export function playbackAction(args:Record<string,unknown>):DeviceActionRequest 
 }
 
 export class HeanTools extends DefaultToolProvider {
+  private readonly dashboard=new DashboardLauncher();
+  override resolveDeviceResult(sessionId:string,raw:unknown):boolean {
+    return this.dashboard.resolve(sessionId,raw)||super.resolveDeviceResult(sessionId,raw);
+  }
+  override cancelSession(sessionId:string,reason?:string):void {
+    this.dashboard.cancel(sessionId,reason);super.cancelSession(sessionId,reason);
+  }
+  override clearSession(sessionId:string):void {
+    this.dashboard.cancel(sessionId,'Session state cleared');super.clearSession(sessionId);
+  }
   override async prepare(context:VoiceTurnContext,policy:ToolPreparationContext={}) {
     const prepared=await super.prepare(context,policy);
     prepared.registry=withNativeErrorFeedback(prepared.registry);
@@ -43,6 +54,7 @@ export class HeanTools extends DefaultToolProvider {
     // original screen and use the supported audio URL stream, without a music subscription.
     prepared.registry.register(playDefinition,executor(false));
     prepared.registry.register(stopDefinition,executor(true));
+    prepared.registry.register(dashboardDefinition,this.dashboard.executor());
     prepared.catalog.tools=prepared.registry.definitions();
     prepared.toolChoice='auto';
     return prepared;

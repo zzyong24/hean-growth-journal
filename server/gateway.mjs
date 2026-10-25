@@ -8,10 +8,12 @@ import {registerVoiceRoutes} from './voice-routes.mjs';
 import {registerDisplayRoutes} from './display.mjs';
 import {registerVoiceChat} from './voice-chat.mjs';
 import {registerMusicRoutes} from './music.mjs';
+import {dashboardDelivery,registerDashboardRoutes} from './dashboard.mjs';
 import {accessStore} from './access.mjs';
 const dir=process.env.STATE_DIRECTORY||'./state';mkdirSync(dir,{recursive:true,mode:0o700});
 const access=accessStore(`${dir}/access.sqlite`);
 const voice=voiceStore(`${dir}/voice.sqlite`);
+const dashboard=dashboardDelivery(voice,{origin:process.env.PUBLIC_ORIGIN||undefined});
 const internalToken=randomBytes(32).toString('hex');process.env.APP_TOKEN=internalToken;
 const backend=createServer();await new Promise(resolve=>backend.listen(0,'127.0.0.1',resolve));
 const upstream=`http://127.0.0.1:${backend.address().port}`;
@@ -26,6 +28,7 @@ app.addHook('onRequest',async(req,res)=>{
  if(req.method==='OPTIONS')return res.code(204).send();
  if(req.url==='/health'||req.url==='/auth/guest')return;
  if(/^\/api\/music\/play\/[^/?]+(?:\?|$)/.test(req.url))return; // Each track requires its own expiring playback ticket.
+ if(req.url.split('?')[0]==='/api/display/app.lua')return; // Private, five-minute package ticket checked by the route.
  if(req.url.split('?')[0]==='/api/display/summary'){const link=voice.identifyDisplay(req.headers.authorization?.replace(/^Bearer /,''));if(!link)return res.code(401).send({error:'UNAUTHORIZED'});req.displayLink=link;return;}
  if(['/mcp/hean','/api/voice/chat/completions'].includes(req.url.split('?')[0])){const link=voice.identify(req.headers.authorization?.replace(/^Bearer /,''));if(!link)return res.code(401).send({error:'UNAUTHORIZED'});req.voiceLink=link;return;}
  const id=access.identify(req.headers.authorization?.replace(/^Bearer /,''));if(!id)return res.code(401).send({error:'UNAUTHORIZED'});
@@ -42,7 +45,8 @@ app.get('/health',async()=>({ok:true,service:'hean-ai'}));
 app.post('/auth/guest',{bodyLimit:1024},async(req,res)=>{const guest=access.register(req.ip);return guest?guest:res.code(429).send({error:'REGISTRATION_LIMIT'});});
 registerVoiceRoutes(app,{store:voice,upstream,internalToken,quota:id=>access.quota(id,false)});
 registerDisplayRoutes(app,voice);
-registerVoiceChat(app,{store:voice,quota:id=>access.quota(id,false),publicOrigin:process.env.PUBLIC_ORIGIN||undefined});
+registerVoiceChat(app,{store:voice,quota:id=>access.quota(id,false),publicOrigin:process.env.PUBLIC_ORIGIN||undefined,dashboard});
+registerDashboardRoutes(app,dashboard);
 registerMusicRoutes(app,voice,`${dir}/music`);
 const routes=['/api/status','/api/interpret','/api/interpret-stream','/api/transcribe','/api/observe','/api/create-portrait','/api/create-report-background'];
 for(const url of routes)app.route({method:url==='/api/status'?'GET':'POST',url,handler:async(req,res)=>{
